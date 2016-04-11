@@ -5,7 +5,7 @@
 
 %include	"pm.inc"	; 常量, 宏, 以及一些说明
 
-org	0100h
+org	07c00h
 	jmp	LABEL_BEGIN
 
 [SECTION .gdt]
@@ -14,10 +14,7 @@ org	0100h
 LABEL_GDT:	                      Descriptor          0,                0,                                         0                  ; 空描述符
 LABEL_DESC_CODE32: Descriptor           0,             SegCode32Len - 1,    DA_C + DA_32   ; 非一致代码段
 LABEL_DESC_VIDEO:    Descriptor    0B8000h,     0ffffh,                              DA_DRW	       ; 显存首地址
-LABEL_DESC_DATA:   Descriptor    0,      DataLen-1, DA_DRW    ; Data
-LABEL_DESC_TEST:   Descriptor 0500000h,     0ffffh, DA_DRW
-LABEL_DESC_STACK:  Descriptor    0,     TopOfStack, DA_DRWA+DA_32; Stack, 32 位
-
+LABEL_DESC_DATA:   Descriptor    0,      DataLen-1, DA_DRW+DA_DPL1    ; Data
 ; GDT 结束
 
 GdtLen		equ	$ - LABEL_GDT	; GDT长度
@@ -27,9 +24,7 @@ GdtPtr		dw	GdtLen - 1	; GDT界限
 ; GDT 选择子
 SelectorCode32		equ	LABEL_DESC_CODE32	- LABEL_GDT
 SelectorVideo		equ	LABEL_DESC_VIDEO	- LABEL_GDT
-SelectorData		equ	LABEL_DESC_DATA		- LABEL_GDT
-SelectorTest		equ	LABEL_DESC_TEST		- LABEL_GDT
-SelectorStack		equ	LABEL_DESC_STACK	- LABEL_GDT
+SelectorData		equ	LABEL_DESC_DATA		- LABEL_GDT + SA_RPL3
 ; END of [SECTION .gdt]
 
 [SECTION .data1]	 ; 数据段
@@ -42,17 +37,6 @@ StrTest:		db	"ABCDEFGHIJKLMNOPQRSTUVWXYZ", 0
 OffsetStrTest		equ	StrTest - $$
 DataLen			equ	$ - LABEL_DATA
 ; END of [SECTION .data1]
-
-; 全局堆栈段
-[SECTION .gs]
-ALIGN	32
-[BITS	32]
-LABEL_STACK:
-	times 25 db 0
-
-TopOfStack	equ	$ - LABEL_STACK - 1
-
-; END of [SECTION .gs]
 
 [SECTION .s16]
 [BITS	16]
@@ -82,16 +66,6 @@ LABEL_BEGIN:
 	shr	eax, 16
 	mov	byte [LABEL_DESC_DATA + 4], al
 	mov	byte [LABEL_DESC_DATA + 7], ah
-
-	; 初始化堆栈段描述符
-	xor	eax, eax
-	mov	ax, ds
-	shl	eax, 4
-	add	eax, LABEL_STACK
-	mov	word [LABEL_DESC_STACK + 2], ax
-	shr	eax, 16
-	mov	byte [LABEL_DESC_STACK + 4], al
-	mov	byte [LABEL_DESC_STACK + 7], ah
 
 	; 为加载 GDTR 作准备
 	xor	eax, eax
@@ -128,93 +102,25 @@ LABEL_BEGIN:
 LABEL_SEG_CODE32:
 	mov	ax, SelectorData
 	mov	ds, ax			; 数据段选择子
-	mov	ax, SelectorTest
-	mov	es, ax			; 测试段选择子
 	mov	ax, SelectorVideo
 	mov	gs, ax			; 视频段选择子(目的)
 
-	mov	ax, SelectorStack
-	mov	ss, ax			; 堆栈段选择子
-
-	mov	esp, TopOfStack
-
-; 下面显示一个字符串
 	mov ecx, 28
 	xor	esi, esi
 	xor	edi, edi
 	mov	edi, 0
-	mov	esi, OffsetPMMessage	; 源数据偏移
+	mov	esi, OffsetPMMessage
 .show:
 	mov	ah, 0Ch			; 0000: 黑底    1100: 红字
-	mov	al, [ds:esi]
+	mov	al, [esi]
 	mov	[gs:edi], ax
 	inc edi
 	inc edi
 	inc esi
 	loop .show
-; 显示完毕
-
-	call	TestRead
-	call	TestWrite
-	call	TestRead
 
 	; 到此停止
 	jmp	$
-
-; ------------------------------------------------------------------------
-TestRead:
-	xor	esi, esi
-	mov	ecx, 8
-.loop:
-	mov	al, [es:esi]
-	call	DispAL
-	inc	esi
-	loop	.loop
-
-	ret
-; TestRead 结束-----------------------------------------------------------
-
-
-; ------------------------------------------------------------------------
-TestWrite:
-	push	esi
-	push	edi
-	xor	esi, esi
-	xor	edi, edi
-	mov	esi, OffsetStrTest	; 源数据偏移
-	cld
-.1:
-	lodsb
-	test	al, al
-	jz	.2
-	mov	[es:edi], al
-	inc	edi
-	jmp	.1
-.2:
-
-	pop	edi
-	pop	esi
-
-	ret
-; TestWrite 结束----------------------------------------------------------
-
-; ------------------------------------------------------------------------
-;
-; ------------------------------------------------------------------------
-DispAL:
-	push	ecx
-	push	edx
-
-	mov	ah, 0Ch			; 0000: 黑底    1100: 红字
-
-	mov	[gs:edi], ax
-	add	edi, 2
-
-	pop	edx
-	pop	ecx
-
-	ret
-; DispAL 结束-------------------------------------------------------------
 
 SegCode32Len	equ	$ - LABEL_SEG_CODE32
 ; END of [SECTION .s32]
