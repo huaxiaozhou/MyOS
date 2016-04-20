@@ -1,4 +1,10 @@
 
+; ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+;                               loader.asm
+; ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+;                                                     Forrest Yu, 2005
+; ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
 org  0100h
 
 	jmp	LABEL_START		; Start
@@ -353,9 +359,9 @@ LABEL_PM_START:
 	call	DispMemInfo
 	call	SetupPaging
 
-	mov	ah, 0Fh				; 0000: 黑底    1111: 白字
-	mov	al, 'P'
-	mov	[gs:((80 * 0 + 39) * 2)], ax	; 屏幕第 0 行, 第 39 列。
+	;mov	ah, 0Fh				; 0000: 黑底    1111: 白字
+	;mov	al, 'P'
+	;mov	[gs:((80 * 0 + 39) * 2)], ax	; 屏幕第 0 行, 第 39 列。
 
 	call	InitKernel
 
@@ -426,10 +432,8 @@ LABEL_PM_START:
 	;		┃      ┃ 未使用空间	┃◇◇◇┃ 可以覆盖的内存
 	;		┗━━━┛		┗━━━┛
 	;
-	; 注：KERNEL 的位置实际上是很灵活的，可以通过同时改变 LOAD.INC 中的
-	;     KernelEntryPointPhyAddr 和 MAKEFILE 中参数 -Ttext 的值来改变。
-	;     比如把 KernelEntryPointPhyAddr 和 -Ttext 的值都改为 0x400400，
-	;     则 KERNEL 就会被加载到内存 0x400000(4M) 处，入口在 0x400400。
+	; 注：KERNEL 的位置实际上是很灵活的，可以通过同时改变 LOAD.INC 中的 KernelEntryPointPhyAddr 和 MAKEFILE 中参数 -Ttext 的值来改变。
+	;     比如，如果把 KernelEntryPointPhyAddr 和 -Ttext 的值都改为 0x400400，则 KERNEL 就会被加载到内存 0x400000(4M) 处，入口在 0x400400。
 	;
 
 
@@ -464,6 +468,7 @@ DispAL:
 
 	mov	al, dl
 	loop	.begin
+	;add	edi, 2
 
 	mov	[dwDispPos], edi
 
@@ -583,11 +588,11 @@ MemCpy:
 	cmp	ecx, 0		; 判断计数器
 	jz	.2		; 计数器为零时跳出
 
-	mov	al, [ds:esi]		        ; ┓
-	inc	esi			                ; ┃
-					                        ; ┣ 逐字节移动
+	mov	al, [ds:esi]		; ┓
+	inc	esi			; ┃
+					; ┣ 逐字节移动
 	mov	byte [es:edi], al	; ┃
-	inc	edi			                ; ┛
+	inc	edi			; ┛
 
 	dec	ecx		; 计数器减一
 	jmp	.1		; 循环
@@ -708,31 +713,30 @@ SetupPaging:
 
 ; InitKernel ---------------------------------------------------------------------------------
 ; 将 KERNEL.BIN 的内容经过整理对齐后放到新的位置
-; 遍历每一个 Program Header，根据 Program Header 中的信息来确定把什么放进内存，放到什么位置，以及放多少。
 ; --------------------------------------------------------------------------------------------
-InitKernel:
-        xor   esi, esi
-        mov   cx, word [BaseOfKernelFilePhyAddr+2Ch];`. ecx <- pELFHdr->e_phnum
-        movzx ecx, cx                               ;/
-        mov   esi, [BaseOfKernelFilePhyAddr + 1Ch]  ; esi <- pELFHdr->e_phoff
-        add   esi, BaseOfKernelFilePhyAddr;esi<-OffsetOfKernel+pELFHdr->e_phoff
+InitKernel:	; 遍历每一个 Program Header，根据 Program Header 中的信息来确定把什么放进内存，放到什么位置，以及放多少。
+	xor	esi, esi
+	mov	cx, word [BaseOfKernelFilePhyAddr + 2Ch]; ┓ ecx <- pELFHdr->e_phnum
+	movzx	ecx, cx					; ┛
+	mov	esi, [BaseOfKernelFilePhyAddr + 1Ch]	; esi <- pELFHdr->e_phoff
+	add	esi, BaseOfKernelFilePhyAddr		; esi <- OffsetOfKernel + pELFHdr->e_phoff
 .Begin:
-        mov   eax, [esi + 0]
-        cmp   eax, 0                      ; PT_NULL
-        jz    .NoAction
-        push  dword [esi + 010h]    ;size ;`.
-        mov   eax, [esi + 04h]            ; |
-        add   eax, BaseOfKernelFilePhyAddr; | memcpy((void*)(pPHdr->p_vaddr),
-        push  eax		    ;src  ; |      uchCode + pPHdr->p_offset,
-        push  dword [esi + 08h]     ;dst  ; |      pPHdr->p_filesz;
-        call  MemCpy                      ; |
-        add   esp, 12                     ;/
+	mov	eax, [esi + 0]
+	cmp	eax, 0				; PT_NULL
+	jz	.NoAction
+	push	dword [esi + 010h]		; size	┓
+	mov	eax, [esi + 04h]		;	┃
+	add	eax, BaseOfKernelFilePhyAddr	;	┣ ::memcpy(	(void*)(pPHdr->p_vaddr),
+	push	eax				; src	┃		uchCode + pPHdr->p_offset,
+	push	dword [esi + 08h]		; dst	┃		pPHdr->p_filesz;
+	call	MemCpy				;	┃
+	add	esp, 12				;	┛
 .NoAction:
-        add   esi, 020h                   ; esi += pELFHdr->e_phentsize
-        dec   ecx
-        jnz   .Begin
+	add	esi, 020h			; esi += pELFHdr->e_phentsize
+	dec	ecx
+	jnz	.Begin
 
-        ret
+	ret
 ; InitKernel ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 
